@@ -20,7 +20,7 @@ def export_to_json(filename, headers, rows):
         # Преобразуем список списков в список словарей
         data = []
         for row in rows:
-            # zip объединяет заголовки и значения строки в пары: (id, 1), (name, 'Bob')
+            # zip объединяет заголовки и значения строки в пары
             item = dict(zip(headers, row))
             data.append(item)
 

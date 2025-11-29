@@ -28,7 +28,10 @@ class DatabaseManager:
 
             # Если это SELECT - получаем данные
             if self.cursor.description:
-                headers = [description[0] for description in self.cursor.description]
+                headers = [
+                    description[0]
+                    for description in self.cursor.description
+                ]
                 rows = self.cursor.fetchall()
                 return headers, rows, "Запрос выполнен"
             else:

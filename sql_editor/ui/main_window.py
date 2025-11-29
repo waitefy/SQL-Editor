@@ -1,13 +1,16 @@
 from PyQt6.QtWidgets import (
-    QCompleter, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QTableWidget, QTreeWidget,
-    QSplitter, QHeaderView, QTreeWidgetItem, QMessageBox, QFileDialog, QTableWidgetItem
+    QCompleter, QMainWindow, QWidget, QVBoxLayout,
+    QHBoxLayout, QPushButton, QTableWidget, QTreeWidget,
+    QSplitter, QHeaderView, QTreeWidgetItem,
+    QMessageBox, QFileDialog, QTableWidgetItem
 )
 from PyQt6.QtCore import Qt, QStringListModel
 from sql_editor.db.connection import DatabaseManager
 from sql_editor.ui.syntax import SqlHighlighter, SQL_KEYWORDS
 from sql_editor.ui.editor import CodeEditor
 from sql_editor.utils.export import export_to_csv, export_to_json
+from sql_editor.ui.styles import DARK_THEME, LIGHT_THEME
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -17,7 +20,6 @@ class MainWindow(QMainWindow):
         self.db = DatabaseManager()
         self.current_headers = []
         self.current_rows = []
-
         self.setWindowTitle("SQL Editor")
         self.resize(1200, 800)
 
@@ -28,30 +30,32 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 1. Верхняя панель (Toolbar)
+        # Переменная состояния темы
+        self.is_dark_theme = True
+
+        # Верхняя панель (Toolbar)
         self.toolbar_layout = QHBoxLayout()
         self.toolbar_layout.setContentsMargins(10, 10, 10, 10)
-
+        self.btn_create = QPushButton("➕ Новая БД")
         self.btn_connect = QPushButton("🔌 Подключить БД")
-        self.btn_run = QPushButton("▶ Выполнить")
-        self.btn_run.setEnabled(False)
-
-        self.btn_connect = QPushButton("🔌 Подключить БД")
-        self.btn_run = QPushButton("▶ Выполнить")
-        self.btn_run.setEnabled(False)
-
         self.btn_export = QPushButton("💾 Экспорт")
-        self.btn_export.setEnabled(False)  # Неактивна, пока нет данных
+        self.btn_export.setEnabled(False)
+        self.btn_run = QPushButton("▶ Выполнить")
+        self.btn_run.setEnabled(False)
+        self.btn_theme = QPushButton("🌙️")
+        self.btn_theme.setToolTip("Сменить тему")
+        self.btn_theme.setFixedWidth(48)
 
-        # Добавляем кнопки и растягивающийся разделитель
+        # Добавляем кнопки
+        self.toolbar_layout.addWidget(self.btn_create)
         self.toolbar_layout.addWidget(self.btn_connect)
+        self.toolbar_layout.addWidget(self.btn_export)
         self.toolbar_layout.addWidget(self.btn_run)
-        self.toolbar_layout.addWidget(self.btn_export)  # <--- Добавили в layout
         self.toolbar_layout.addStretch()
-
+        self.toolbar_layout.addWidget(self.btn_theme)
         main_layout.addLayout(self.toolbar_layout)
 
-        # 2. Рабочая область (Сплиттер: Слева дерево, Справа редактор+таблица)
+        # Рабочая область (Сплиттер: Слева дерево, Справа редактор+таблица)
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # --- Левая панель (Дерево БД) ---
@@ -73,12 +77,13 @@ class MainWindow(QMainWindow):
         # Подключаем подсветку синтаксиса
         self.highlighter = SqlHighlighter(self.query_editor.document())
 
-        # Таблица результатов
+        # --- Таблица результатов ---
         self.result_table = QTableWidget()
         self.result_table.setColumnCount(0)
         self.result_table.setRowCount(0)
         # Растягивать заголовки под ширину
-        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.result_table.horizontalHeader()\
+            .setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         # Убираем номера строк слева (для красоты)
         self.result_table.verticalHeader().setVisible(False)
 
@@ -88,84 +93,80 @@ class MainWindow(QMainWindow):
         # Настройка размеров сплиттеров (пропорции)
         self.right_splitter.setStretchFactor(0, 1)  # Редактор
         self.right_splitter.setStretchFactor(1, 2)  # Таблица
-
         self.main_splitter.addWidget(self.right_splitter)
         self.main_splitter.setStretchFactor(0, 1)  # Дерево
         self.main_splitter.setStretchFactor(1, 4)  # Правая часть
-
         main_layout.addWidget(self.main_splitter)
 
-        # 3. Статус бар
+        # Статус бар
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Готов к работе")
 
-        # Применяем стили (Темная тема)
-        self._apply_styles()
-
         # Подключаем сигналы
+        self.btn_create.clicked.connect(self.on_create_clicked)
         self.btn_connect.clicked.connect(self.on_connect_clicked)
-        self.btn_run.clicked.connect(self.on_run_clicked)
         self.btn_export.clicked.connect(self.on_export_clicked)
+        self.btn_run.clicked.connect(self.on_run_clicked)
+        self.btn_theme.clicked.connect(self.toggle_theme)
 
         # Подключаем Enter в редакторе к выполнению запроса
         self.query_editor.executionRequested.connect(self.on_run_clicked)
 
+        # Обработка клика по таблице в дереве
+        self.tree_widget.itemClicked.connect(self.on_tree_item_clicked)
+
         # Устанавливаем фокус на редактор при запуске
         self.query_editor.setFocus()
 
-    def _apply_styles(self):
-        """Применяем CSS-подобные стили для интерфейса"""
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #2b2b2b;
-            }
-            QWidget {
-                color: #e0e0e0;
-                font-family: 'Segoe UI', sans-serif;
-                font-size: 14px;
-            }
+        # Применяем стартовую тему
+        self.setStyleSheet(DARK_THEME)
 
-            /* --- Стили Кнопок (Прозрачные) --- */
-            QPushButton {
-                background-color: transparent;
-                border: 1px solid transparent;
-                padding: 8px 16px;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid #555;
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.05);
-            }
-            QPushButton:disabled {
-                color: #666666;
-            }
+    def toggle_theme(self):
+        """Переключение между светлой и темной темой"""
+        if self.is_dark_theme:
+            # Переключаем на СВЕТЛУЮ
+            self.setStyleSheet(LIGHT_THEME)
+            self.highlighter.set_theme("light") # Меняем цвета кода
+            self.btn_theme.setText("☀️")        # Меняем иконку на Луну
+            self.is_dark_theme = False
+        else:
+            # Переключаем на ТЕМНУЮ
+            self.setStyleSheet(DARK_THEME)
+            self.highlighter.set_theme("dark")
+            self.btn_theme.setText("🌙")         # Меняем иконку на Солнце
+            self.is_dark_theme = True
 
-            /* --- Остальные элементы --- */
-            QTreeWidget, QTableWidget, QPlainTextEdit {
-                background-color: #1e1e1e;
-                border: 1px solid #3c3f41;
-                color: #dcdcdc;
-                border-radius: 4px;
-            }
-            QHeaderView::section {
-                background-color: #2b2b2b;
-                padding: 4px;
-                border: none;
-                border-bottom: 2px solid #3c3f41;
-            }
-            QTableCornerButton::section {
-                background-color: #2b2b2b;
-                border: none;
-            }
-            QSplitter::handle {
-                background-color: #3c3f41;
-                height: 2px;
-                width: 2px;
-            }
-        """)
+    def on_create_clicked(self):
+        # Диалог СОХРАНЕНИЯ файла (создания нового)
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Создать новую базу данных",
+            "",
+            "SQLite Database (*.db *.sqlite *.sqlite3 *.db3);;All Files (*)"
+        )
+
+        if file_path:
+            # Проверяем, есть ли уже у файла одно из допустимых расширений
+            valid_extensions = ('.db', '.sqlite', '.sqlite3', '.db3')
+
+            # Если расширения нет, добавляем .db по умолчанию
+            if not file_path.lower().endswith(valid_extensions):
+                file_path += '.db'
+
+            # Используем тот же метод connect, он создаст файл
+            success, message = self.db.connect(file_path)
+            self.status_bar.showMessage(message)
+
+            if success:
+                self.btn_run.setEnabled(True)
+                self.update_tree_structure()
+                QMessageBox.information(
+                    self,
+                    "Успех",
+                    f"База данных успешно создана:\n{file_path}"
+                )
+            else:
+                QMessageBox.critical(self, "Ошибка", message)
 
     # --- Слоты (Методы обработки событий) ---
     def on_connect_clicked(self):
@@ -186,27 +187,6 @@ class MainWindow(QMainWindow):
                 self.update_tree_structure()
             else:
                 QMessageBox.critical(self, "Ошибка", message)
-
-    def on_run_clicked(self):
-        sql = self.query_editor.toPlainText().strip()
-        if not sql:
-            QMessageBox.warning(self, "Ошибка", "Введите SQL запрос!")
-            return
-
-        # Выполняем запрос
-        headers, rows, message = self.db.execute_query(sql)
-
-        if headers is None and rows is None:
-            # Ошибка
-            self.status_bar.showMessage("Ошибка выполнения")
-            QMessageBox.critical(self, "SQL Ошибка", message)
-        else:
-            # Успех
-            self.status_bar.showMessage(message)
-            self.fill_table(headers, rows)
-
-            # Обновляем дерево таблиц, чтобы увидеть изменения (CREATE/DROP)
-            self.update_tree_structure()
 
     def on_export_clicked(self):
         if not self.current_rows:
@@ -232,17 +212,61 @@ class MainWindow(QMainWindow):
             # Если пользователь не написал расширение, добавим его
             if not file_path.endswith('.csv'):
                 file_path += '.csv'
-            success, message = export_to_csv(file_path, self.current_headers, self.current_rows)
+            success, message = export_to_csv(
+                file_path,
+                self.current_headers,
+                self.current_rows
+            )
 
         elif file_path.endswith('.json') or "JSON" in selected_filter:
             if not file_path.endswith('.json'):
                 file_path += '.json'
-            success, message = export_to_json(file_path, self.current_headers, self.current_rows)
+            success, message = export_to_json(
+                file_path,
+                self.current_headers,
+                self.current_rows
+            )
 
         if success:
             QMessageBox.information(self, "Успех", message)
         else:
             QMessageBox.critical(self, "Ошибка", message)
+
+    def on_run_clicked(self):
+        sql = self.query_editor.toPlainText().strip()
+        if not sql:
+            QMessageBox.warning(self, "Ошибка", "Введите SQL запрос!")
+            return
+
+        # Выполняем запрос
+        headers, rows, message = self.db.execute_query(sql)
+
+        if headers is None and rows is None:
+            # Ошибка (красное окно)
+            self.status_bar.showMessage("Ошибка выполнения")
+            QMessageBox.critical(self, "SQL Ошибка", message)
+        else:
+            # Успех
+            self.status_bar.showMessage(message)
+            self.fill_table(headers, rows)
+            self.update_tree_structure()
+            if not headers:
+                QMessageBox.information(self, "Успех", message)
+
+    def on_tree_item_clicked(self, item):
+        """Обработка клика по элементу дерева (таблице)"""
+        # Проверяем, что кликнули по таблице (у неё должен быть родитель)
+        if item.parent():
+            table_name = item.text(0)
+
+            # Формируем запрос для выборки всех данных
+            query = f"SELECT * FROM {table_name};"
+
+            # Вставляем запрос в редактор
+            self.query_editor.setPlainText(query)
+
+            # Автоматически выполняем его, как будто нажали кнопку Run
+            self.on_run_clicked()
 
     # --- Вспомогательные методы UI ---
     def update_tree_structure(self):
@@ -252,7 +276,12 @@ class MainWindow(QMainWindow):
         # Корневой элемент - имя файла
         db_name = self.db.db_path.split("/")[-1]
         root = QTreeWidgetItem(self.tree_widget, [db_name])
-        root.setIcon(0, self.style().standardIcon(self.style().StandardPixmap.SP_DriveHDIcon))
+        root.setIcon(
+            0,
+            self.style().standardIcon(
+                self.style().StandardPixmap.SP_DriveHDIcon
+            )
+        )
 
         # Получаем таблицы
         tables = self.db.get_tables()

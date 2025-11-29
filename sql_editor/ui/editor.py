@@ -39,7 +39,11 @@ class CodeEditor(QPlainTextEdit):
 
         tc = self.textCursor()
         prefix_len = len(self.completer.completionPrefix())
-        tc.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, prefix_len)
+        tc.movePosition(
+            QTextCursor.MoveOperation.Left,
+            QTextCursor.MoveMode.KeepAnchor,
+            prefix_len
+        )
         tc.insertText(completion)
         self.setTextCursor(tc)
 
@@ -56,7 +60,8 @@ class CodeEditor(QPlainTextEdit):
     def keyPressEvent(self, event: QKeyEvent):
         # Если открыто меню автодополнения — Enter выбирает пункт
         if self.completer and self.completer.popup().isVisible():
-            if event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return, Qt.Key.Key_Escape, Qt.Key.Key_Tab,
+            if event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return,
+                               Qt.Key.Key_Escape, Qt.Key.Key_Tab,
                                Qt.Key.Key_Backtab):
                 event.ignore()
                 return
@@ -74,7 +79,8 @@ class CodeEditor(QPlainTextEdit):
                 return
 
         # Принудительный вызов автодополнения через Ctrl+Space
-        is_shortcut = (event.modifiers() == Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Space)
+        is_shortcut = (event.modifiers() == Qt.KeyboardModifier.ControlModifier
+                       and event.key() == Qt.Key.Key_Space)
 
         # Сначала даем редактору обработать ввод символа
         if not self.completer or not is_shortcut:
@@ -100,15 +106,18 @@ class CodeEditor(QPlainTextEdit):
         eow = "~!@#$%^&*()_+{}|:\"<>?,./;'[]\\-="
         completion_prefix = self.text_under_cursor()
 
-        if not is_shortcut and (len(completion_prefix) < 1 or (event.text() and event.text()[-1] in eow)):
+        if not is_shortcut and (len(completion_prefix) < 1
+                                or (event.text() and event.text()[-1] in eow)):
             self.completer.popup().hide()
             return
 
         if completion_prefix != self.completer.completionPrefix():
             self.completer.setCompletionPrefix(completion_prefix)
-            self.completer.popup().setCurrentIndex(self.completer.completionModel().index(0, 0))
+            self.completer.popup()\
+                .setCurrentIndex(self.completer.completionModel().index(0, 0))
 
         cr = self.cursorRect()
         cr.setWidth(
-            self.completer.popup().sizeHintForColumn(0) + self.completer.popup().verticalScrollBar().sizeHint().width())
+            self.completer.popup().sizeHintForColumn(0) +
+            self.completer.popup().verticalScrollBar().sizeHint().width())
         self.completer.complete(cr)
