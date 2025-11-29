@@ -1,15 +1,19 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QPlainTextEdit, QTableWidget, QTreeWidget,
-    QSplitter, QHeaderView, QTreeWidgetItem, QMessageBox
+    QSplitter, QHeaderView, QTreeWidgetItem, QMessageBox, QFileDialog, QTableWidgetItem
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from sql_editor.db.connection import DatabaseManager  # <--- Импортируем нашу логику
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        # Создаем экземпляр менеджера БД
+        self.db = DatabaseManager()
 
         self.setWindowTitle("SQL Editor")
         self.resize(1200, 800)
@@ -24,7 +28,7 @@ class MainWindow(QMainWindow):
         # 1. Верхняя панель (Toolbar)
         self.toolbar_layout = QHBoxLayout()
         self.toolbar_layout.setContentsMargins(10, 10, 10, 10)
-        self.toolbar_layout.setSpacing(10)
+        self.toolbar_layout.setSpacing(15)
 
         self.btn_connect = QPushButton("🔌 Подключить БД")
         self.btn_run = QPushButton("▶ Выполнить")
@@ -60,6 +64,8 @@ class MainWindow(QMainWindow):
         self.result_table.setRowCount(0)
         # Растягивать заголовки под ширину
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Убираем номера строк слева (для красоты)
+        self.result_table.verticalHeader().setVisible(False)
 
         self.right_splitter.addWidget(self.query_editor)
         self.right_splitter.addWidget(self.result_table)
@@ -81,7 +87,7 @@ class MainWindow(QMainWindow):
         # Применяем стили (Темная тема)
         self._apply_styles()
 
-        # Подключаем сигналы (заглушки)
+        # Подключаем сигналы
         self.btn_connect.clicked.connect(self.on_connect_clicked)
         self.btn_run.clicked.connect(self.on_run_clicked)
 
@@ -92,27 +98,27 @@ class MainWindow(QMainWindow):
                 background-color: #2b2b2b;
             }
             QWidget {
-                color: #e0e0e0; /* Чуть более мягкий белый для текста */
+                color: #e0e0e0;
                 font-family: 'Segoe UI', sans-serif;
                 font-size: 14px;
             }
 
             /* --- Стили Кнопок (Прозрачные) --- */
             QPushButton {
-                background-color: transparent;       /* Прозрачный фон */
-                border: 1px solid transparent;       /* Прозрачная рамка (чтобы не прыгало при наведении) */
+                background-color: transparent;
+                border: 1px solid transparent;
                 padding: 8px 16px;
-                border-radius: 6px;                  /* Скругленные углы */
+                border-radius: 6px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.1); /* Легкая подсветка при наведении (10% белого) */
-                border: 1px solid #555;              /* Рамка появляется при наведении */
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid #555;
             }
             QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.05); /* Чуть темнее при нажатии */
+                background-color: rgba(255, 255, 255, 0.05);
             }
             QPushButton:disabled {
-                color: #666666;                      /* Серый текст для неактивных кнопок */
+                color: #666666;
             }
 
             /* --- Остальные элементы --- */
@@ -128,6 +134,10 @@ class MainWindow(QMainWindow):
                 border: none;
                 border-bottom: 2px solid #3c3f41;
             }
+            QTableCornerButton::section {
+                background-color: #2b2b2b;
+                border: none;
+            }
             QSplitter::handle {
                 background-color: #3c3f41;
                 height: 2px;
@@ -137,23 +147,81 @@ class MainWindow(QMainWindow):
 
     # --- Слоты (Методы обработки событий) ---
     def on_connect_clicked(self):
-        QMessageBox.information(self, "Подключение", "Здесь будет диалог открытия файла БД")
-        # Временная эмуляция успешного подключения
-        self.btn_run.setEnabled(True)
-        self.status_bar.showMessage("Подключено к example.db")
+        # Открываем диалог выбора файла
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Открыть базу данных",
+            "",
+            "SQLite Database (*.db *.sqlite);;All Files (*)"
+        )
 
-        # Добавим фейковые данные в дерево для наглядности
-        self.tree_widget.clear()
-        root = QTreeWidgetItem(self.tree_widget, ["example.db"])
-        table1 = QTreeWidgetItem(root, ["users"])
-        table2 = QTreeWidgetItem(root, ["orders"])
-        root.setExpanded(True)
+        if file_path:
+            success, message = self.db.connect(file_path)
+            self.status_bar.showMessage(message)
+
+            if success:
+                self.btn_run.setEnabled(True)
+                self.update_tree_structure()
+            else:
+                QMessageBox.critical(self, "Ошибка", message)
 
     def on_run_clicked(self):
-        sql = self.query_editor.toPlainText()
-        if not sql.strip():
+        sql = self.query_editor.toPlainText().strip()
+        if not sql:
             QMessageBox.warning(self, "Ошибка", "Введите SQL запрос!")
             return
 
-        QMessageBox.information(self, "Выполнение", f"Выполняем запрос:\n{sql}")
-        self.status_bar.showMessage("Запрос выполнен успешно")
+        # Выполняем запрос
+        headers, rows, message = self.db.execute_query(sql)
+
+        if headers is None and rows is None:
+            # Ошибка
+            self.status_bar.showMessage("Ошибка выполнения")
+            QMessageBox.critical(self, "SQL Ошибка", message)
+        else:
+            # Успех
+            self.status_bar.showMessage(message)
+            self.fill_table(headers, rows)
+
+            # Обновляем дерево таблиц, чтобы увидеть изменения (CREATE/DROP)
+            self.update_tree_structure()
+
+    # --- Вспомогательные методы UI ---
+    def update_tree_structure(self):
+        """Обновляет дерево таблиц слева"""
+        self.tree_widget.clear()
+
+        # Корневой элемент - имя файла
+        db_name = self.db.db_path.split("/")[-1]
+        root = QTreeWidgetItem(self.tree_widget, [db_name])
+        root.setIcon(0, self.style().standardIcon(self.style().StandardPixmap.SP_DriveHDIcon))
+
+        # Получаем таблицы
+        tables = self.db.get_tables()
+        for table in tables:
+            item = QTreeWidgetItem(root, [table])
+            # Можно добавить иконку таблицы, если захочется
+
+        root.setExpanded(True)
+
+    def fill_table(self, headers, rows):
+        """Заполняет таблицу результатов"""
+        # Если запрос не вернул данных (например INSERT), очищаем таблицу
+        if not headers:
+            self.result_table.clear()
+            self.result_table.setRowCount(0)
+            self.result_table.setColumnCount(0)
+            return
+
+        # Настраиваем колонки
+        self.result_table.setColumnCount(len(headers))
+        self.result_table.setHorizontalHeaderLabels(headers)
+
+        # Настраиваем строки
+        self.result_table.setRowCount(len(rows))
+
+        # Заполняем ячейки
+        for row_idx, row_data in enumerate(rows):
+            for col_idx, value in enumerate(row_data):
+                item = QTableWidgetItem(str(value))
+                self.result_table.setItem(row_idx, col_idx, item)
