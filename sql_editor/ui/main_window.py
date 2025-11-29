@@ -1,12 +1,12 @@
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QPlainTextEdit, QTableWidget, QTreeWidget,
+    QCompleter, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QTableWidget, QTreeWidget,
     QSplitter, QHeaderView, QTreeWidgetItem, QMessageBox, QFileDialog, QTableWidgetItem
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
-from sql_editor.db.connection import DatabaseManager  # <--- Импортируем нашу логику
-
+from PyQt6.QtCore import Qt, QStringListModel
+from sql_editor.db.connection import DatabaseManager
+from sql_editor.ui.syntax import SqlHighlighter, SQL_KEYWORDS
+from sql_editor.ui.editor import CodeEditor
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -28,7 +28,6 @@ class MainWindow(QMainWindow):
         # 1. Верхняя панель (Toolbar)
         self.toolbar_layout = QHBoxLayout()
         self.toolbar_layout.setContentsMargins(10, 10, 10, 10)
-        self.toolbar_layout.setSpacing(15)
 
         self.btn_connect = QPushButton("🔌 Подключить БД")
         self.btn_run = QPushButton("▶ Выполнить")
@@ -52,11 +51,16 @@ class MainWindow(QMainWindow):
         # --- Правая панель (Сплиттер: Редактор сверху, Таблица снизу) ---
         self.right_splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # Редактор SQL
-        self.query_editor = QPlainTextEdit()
-        self.query_editor.setPlaceholderText("Введите ваш SQL запрос здесь...")
-        font = QFont("Courier New", 12)  # Моноширинный шрифт для кода
-        self.query_editor.setFont(font)
+        # Редактор SQL (Кастомный виджет)
+        self.query_editor = CodeEditor()
+
+        # Настройка автодополнения
+        completer = QCompleter(SQL_KEYWORDS)
+        completer.setModel(QStringListModel(SQL_KEYWORDS))
+        self.query_editor.set_completer(completer)
+
+        # Подключаем подсветку синтаксиса
+        self.highlighter = SqlHighlighter(self.query_editor.document())
 
         # Таблица результатов
         self.result_table = QTableWidget()
@@ -199,7 +203,7 @@ class MainWindow(QMainWindow):
         # Получаем таблицы
         tables = self.db.get_tables()
         for table in tables:
-            item = QTreeWidgetItem(root, [table])
+            QTreeWidgetItem(root, [table])
             # Можно добавить иконку таблицы, если захочется
 
         root.setExpanded(True)
