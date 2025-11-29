@@ -1,9 +1,12 @@
 from PyQt6.QtWidgets import QPlainTextEdit, QCompleter
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QTextCursor, QKeyEvent, QFont
 
 
 class CodeEditor(QPlainTextEdit):
+    # Сигнал, который будет испускаться при нажатии Enter
+    executionRequested = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.completer = None
@@ -35,18 +38,12 @@ class CodeEditor(QPlainTextEdit):
             return
 
         tc = self.textCursor()
-        # Вычисляем длину того, что мы уже написали (например, "SEL" = 3)
         prefix_len = len(self.completer.completionPrefix())
-
-        # Выделяем это слово влево от курсора
         tc.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, prefix_len)
-
-        # Заменяем выделенное на полное слово из словаря
         tc.insertText(completion)
         self.setTextCursor(tc)
 
     def text_under_cursor(self):
-        """Возвращает слово под курсором"""
         tc = self.textCursor()
         tc.select(QTextCursor.SelectionType.WordUnderCursor)
         return tc.selectedText()
@@ -57,26 +54,41 @@ class CodeEditor(QPlainTextEdit):
         super().focusInEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent):
-        # Если меню открыто, ловим клавиши выбора (Tab, Enter)
+        # Если открыто меню автодополнения — Enter выбирает пункт
         if self.completer and self.completer.popup().isVisible():
             if event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return, Qt.Key.Key_Escape, Qt.Key.Key_Tab,
                                Qt.Key.Key_Backtab):
                 event.ignore()
                 return
 
-        # Проверка на Ctrl+Space (принудительный вызов)
+        # Обработка Enter (Запуск) vs Shift+Enter (Новая строка)
+        if event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return):
+            # Если нажат Shift -> Обычный перенос строки
+            if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+                super().keyPressEvent(event)
+                return
+
+            # Если просто Enter - Выполняем запрос
+            if event.modifiers() == Qt.KeyboardModifier.NoModifier:
+                self.executionRequested.emit()
+                return
+
+        # Принудительный вызов автодополнения через Ctrl+Space
         is_shortcut = (event.modifiers() == Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_Space)
 
-        # Сначала даем редактору напечатать символ
+        # Сначала даем редактору обработать ввод символа
         if not self.completer or not is_shortcut:
             super().keyPressEvent(event)
 
-        # Не показывать меню при удалении (Backspace/Delete)
+        # Логика автодополнения
+
+        # Не показывать меню при удалении
         if event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
             if self.completer.popup().isVisible():
                 self.completer.popup().hide()
             return
 
+        # Разрешаем работу с Shift (заглавные буквы) и без модификаторов
         modifiers = event.modifiers()
         allowed = (modifiers == Qt.KeyboardModifier.NoModifier) or \
                   (modifiers == Qt.KeyboardModifier.ShiftModifier) or \
@@ -86,20 +98,16 @@ class CodeEditor(QPlainTextEdit):
             return
 
         eow = "~!@#$%^&*()_+{}|:\"<>?,./;'[]\\-="
-
         completion_prefix = self.text_under_cursor()
 
-        # Не показываем меню, если слово короче 1 символа или ввели спецсимвол
         if not is_shortcut and (len(completion_prefix) < 1 or (event.text() and event.text()[-1] in eow)):
             self.completer.popup().hide()
             return
 
-        # Обновляем список подсказок
         if completion_prefix != self.completer.completionPrefix():
             self.completer.setCompletionPrefix(completion_prefix)
             self.completer.popup().setCurrentIndex(self.completer.completionModel().index(0, 0))
 
-        # Показываем меню
         cr = self.cursorRect()
         cr.setWidth(
             self.completer.popup().sizeHintForColumn(0) + self.completer.popup().verticalScrollBar().sizeHint().width())

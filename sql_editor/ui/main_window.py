@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QStringListModel
 from sql_editor.db.connection import DatabaseManager
 from sql_editor.ui.syntax import SqlHighlighter, SQL_KEYWORDS
 from sql_editor.ui.editor import CodeEditor
+from sql_editor.utils.export import export_to_csv, export_to_json
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -14,6 +15,8 @@ class MainWindow(QMainWindow):
 
         # Создаем экземпляр менеджера БД
         self.db = DatabaseManager()
+        self.current_headers = []
+        self.current_rows = []
 
         self.setWindowTitle("SQL Editor")
         self.resize(1200, 800)
@@ -31,11 +34,19 @@ class MainWindow(QMainWindow):
 
         self.btn_connect = QPushButton("🔌 Подключить БД")
         self.btn_run = QPushButton("▶ Выполнить")
-        self.btn_run.setEnabled(False)  # Пока нет соединения
+        self.btn_run.setEnabled(False)
+
+        self.btn_connect = QPushButton("🔌 Подключить БД")
+        self.btn_run = QPushButton("▶ Выполнить")
+        self.btn_run.setEnabled(False)
+
+        self.btn_export = QPushButton("💾 Экспорт")
+        self.btn_export.setEnabled(False)  # Неактивна, пока нет данных
 
         # Добавляем кнопки и растягивающийся разделитель
         self.toolbar_layout.addWidget(self.btn_connect)
         self.toolbar_layout.addWidget(self.btn_run)
+        self.toolbar_layout.addWidget(self.btn_export)  # <--- Добавили в layout
         self.toolbar_layout.addStretch()
 
         main_layout.addLayout(self.toolbar_layout)
@@ -94,6 +105,13 @@ class MainWindow(QMainWindow):
         # Подключаем сигналы
         self.btn_connect.clicked.connect(self.on_connect_clicked)
         self.btn_run.clicked.connect(self.on_run_clicked)
+        self.btn_export.clicked.connect(self.on_export_clicked)
+
+        # Подключаем Enter в редакторе к выполнению запроса
+        self.query_editor.executionRequested.connect(self.on_run_clicked)
+
+        # Устанавливаем фокус на редактор при запуске
+        self.query_editor.setFocus()
 
     def _apply_styles(self):
         """Применяем CSS-подобные стили для интерфейса"""
@@ -190,6 +208,42 @@ class MainWindow(QMainWindow):
             # Обновляем дерево таблиц, чтобы увидеть изменения (CREATE/DROP)
             self.update_tree_structure()
 
+    def on_export_clicked(self):
+        if not self.current_rows:
+            QMessageBox.warning(self, "Ошибка", "Нет данных для экспорта")
+            return
+
+        # Диалог сохранения файла
+        file_path, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт данных",
+            "export_data",  # Имя по умолчанию
+            "CSV Files (*.csv);;JSON Files (*.json)"
+        )
+
+        if not file_path:
+            return
+
+        success = False
+        message = ""
+
+        # Определяем формат по расширению или фильтру
+        if file_path.endswith('.csv') or "CSV" in selected_filter:
+            # Если пользователь не написал расширение, добавим его
+            if not file_path.endswith('.csv'):
+                file_path += '.csv'
+            success, message = export_to_csv(file_path, self.current_headers, self.current_rows)
+
+        elif file_path.endswith('.json') or "JSON" in selected_filter:
+            if not file_path.endswith('.json'):
+                file_path += '.json'
+            success, message = export_to_json(file_path, self.current_headers, self.current_rows)
+
+        if success:
+            QMessageBox.information(self, "Успех", message)
+        else:
+            QMessageBox.critical(self, "Ошибка", message)
+
     # --- Вспомогательные методы UI ---
     def update_tree_structure(self):
         """Обновляет дерево таблиц слева"""
@@ -210,6 +264,16 @@ class MainWindow(QMainWindow):
 
     def fill_table(self, headers, rows):
         """Заполняет таблицу результатов"""
+        # --- СОХРАНЯЕМ ДАННЫЕ ДЛЯ ЭКСПОРТА ---
+        self.current_headers = headers
+        self.current_rows = rows
+
+        # Разблокируем кнопку экспорта, если есть данные
+        if rows:
+            self.btn_export.setEnabled(True)
+        else:
+            self.btn_export.setEnabled(False)
+
         # Если запрос не вернул данных (например INSERT), очищаем таблицу
         if not headers:
             self.result_table.clear()
