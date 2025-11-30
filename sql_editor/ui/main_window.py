@@ -1,10 +1,11 @@
+import os
 from PyQt6.QtWidgets import (
     QCompleter, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QPushButton, QTableWidget, QTreeWidget,
     QSplitter, QHeaderView, QTreeWidgetItem,
     QMessageBox, QFileDialog, QTableWidgetItem
 )
-from PyQt6.QtCore import Qt, QStringListModel
+from PyQt6.QtCore import Qt, QStringListModel, QSettings
 from sql_editor.db.connection import DatabaseManager
 from sql_editor.ui.syntax import SqlHighlighter, SQL_KEYWORDS
 from sql_editor.ui.editor import CodeEditor
@@ -121,20 +122,52 @@ class MainWindow(QMainWindow):
         # Применяем стартовую тему
         self.setStyleSheet(DARK_THEME)
 
+        self.settings = QSettings("LinkovSoft", "SQLEditor")
+
+        # Загружаем сохраненное состояние
+        self.load_settings()
+
+    def load_settings(self):
+        """Загрузка настроек приложения"""
+        # 1. Восстановление темы
+        saved_theme = self.settings.value("theme", "dark")
+        # По умолчанию у нас dark. Если сохранено light - переключаем.
+        if saved_theme == "light":
+            self.toggle_theme()
+
+        # 2. Восстановление последней БД
+        last_db_path = self.settings.value("last_db")
+
+        if last_db_path:
+            # Проверяем, существует ли файл (вдруг его удалили)
+            if os.path.exists(last_db_path):
+                success, message = self.db.connect(last_db_path)
+                if success:
+                    self.status_bar.showMessage(
+                        f"Восстановлена сессия: {message}")
+                    self.btn_run.setEnabled(True)
+                    self.update_tree_structure()
+            else:
+                # Если файла нет, удаляем запись из настроек
+                self.settings.remove("last_db")
+                self.status_bar.showMessage("Предыдущая БД не найдена")
+
     def toggle_theme(self):
         """Переключение между светлой и темной темой"""
         if self.is_dark_theme:
             # Переключаем на СВЕТЛУЮ
             self.setStyleSheet(LIGHT_THEME)
-            self.highlighter.set_theme("light") # Меняем цвета кода
-            self.btn_theme.setText("☀️")        # Меняем иконку на Луну
+            self.highlighter.set_theme("light")
+            self.btn_theme.setText("☀️")
             self.is_dark_theme = False
+            self.settings.setValue("theme", "light")
         else:
             # Переключаем на ТЕМНУЮ
             self.setStyleSheet(DARK_THEME)
             self.highlighter.set_theme("dark")
-            self.btn_theme.setText("🌙")         # Меняем иконку на Солнце
+            self.btn_theme.setText("🌙")
             self.is_dark_theme = True
+            self.settings.setValue("theme", "dark")
 
     def on_create_clicked(self):
         # Диалог СОХРАНЕНИЯ файла (создания нового)
@@ -158,6 +191,7 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(message)
 
             if success:
+                self.settings.setValue("last_db", file_path)
                 self.btn_run.setEnabled(True)
                 self.update_tree_structure()
                 QMessageBox.information(
@@ -183,6 +217,7 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(message)
 
             if success:
+                self.settings.setValue("last_db", file_path)
                 self.btn_run.setEnabled(True)
                 self.update_tree_structure()
             else:
