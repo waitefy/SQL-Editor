@@ -82,10 +82,9 @@ class MainWindow(QMainWindow):
         self.result_table = QTableWidget()
         self.result_table.setColumnCount(0)
         self.result_table.setRowCount(0)
-        # Растягивать заголовки под ширину
         self.result_table.horizontalHeader()\
             .setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # Убираем номера строк слева (для красоты)
+        self.result_table.setSortingEnabled(True)
         self.result_table.verticalHeader().setVisible(False)
 
         self.right_splitter.addWidget(self.query_editor)
