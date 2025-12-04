@@ -1,2 +1,2 @@
+pytest
 pyqt6
-pyqt6-sip

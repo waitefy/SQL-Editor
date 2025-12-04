@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from PyQt6.QtWidgets import (
     QCompleter, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QPushButton, QTableWidget, QTreeWidget,
@@ -17,26 +18,41 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        # Создаем экземпляр менеджера БД
+        # Логика
         self.db = DatabaseManager()
         self.current_headers = []
         self.current_rows = []
+
+        # Состояние интерфейса (Инициализируем атрибуты здесь)
+        self.is_dark_theme = True  # <--- ИСПРАВЛЕНИЕ 2: Перенесено в __init__
+        self.highlighter = None
+        self.query_editor = None
+        self.result_table = None
+        self.tree_widget = None
+
+        # Настройки UI
         self.setWindowTitle("SQL Editor")
         self.resize(1200, 800)
+        self.settings = QSettings("LinkovSoft", "SQLEditor")
 
-        # Основной виджет и layout
+        # Инициализация интерфейса
+        self._init_ui()
+
+        # Загрузка состояния (тема, последняя БД)
+        self.load_settings()
+
+    def _init_ui(self):
+        """Инициализация графических компонентов"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Переменная состояния темы
-        self.is_dark_theme = True
-
-        # Верхняя панель (Toolbar)
+        # Toolbar
         self.toolbar_layout = QHBoxLayout()
         self.toolbar_layout.setContentsMargins(10, 10, 10, 10)
+
         self.btn_create = QPushButton("➕ Новая БД")
         self.btn_connect = QPushButton("🔌 Подключить БД")
         self.btn_export = QPushButton("💾 Экспорт")
@@ -44,10 +60,8 @@ class MainWindow(QMainWindow):
         self.btn_run = QPushButton("▶ Выполнить")
         self.btn_run.setEnabled(False)
         self.btn_theme = QPushButton("🌙️")
-        self.btn_theme.setToolTip("Сменить тему")
         self.btn_theme.setFixedWidth(48)
 
-        # Добавляем кнопки
         self.toolbar_layout.addWidget(self.btn_create)
         self.toolbar_layout.addWidget(self.btn_connect)
         self.toolbar_layout.addWidget(self.btn_export)
@@ -56,112 +70,83 @@ class MainWindow(QMainWindow):
         self.toolbar_layout.addWidget(self.btn_theme)
         main_layout.addLayout(self.toolbar_layout)
 
-        # Рабочая область (Сплиттер: Слева дерево, Справа редактор+таблица)
+        # Рабочая область
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # --- Левая панель (Дерево БД) ---
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabel("База данных")
         self.main_splitter.addWidget(self.tree_widget)
 
-        # --- Правая панель (Сплиттер: Редактор сверху, Таблица снизу) ---
         self.right_splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # Редактор SQL (Кастомный виджет)
         self.query_editor = CodeEditor()
-
-        # Настройка автодополнения
         completer = QCompleter(SQL_KEYWORDS)
         completer.setModel(QStringListModel(SQL_KEYWORDS))
         self.query_editor.set_completer(completer)
-
-        # Подключаем подсветку синтаксиса
         self.highlighter = SqlHighlighter(self.query_editor.document())
 
-        # --- Таблица результатов ---
         self.result_table = QTableWidget()
-        self.result_table.setColumnCount(0)
-        self.result_table.setRowCount(0)
-        self.result_table.horizontalHeader()\
-            .setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.result_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch)
         self.result_table.setSortingEnabled(True)
         self.result_table.verticalHeader().setVisible(False)
 
         self.right_splitter.addWidget(self.query_editor)
         self.right_splitter.addWidget(self.result_table)
+        self.right_splitter.setStretchFactor(0, 1)
+        self.right_splitter.setStretchFactor(1, 2)
 
-        # Настройка размеров сплиттеров (пропорции)
-        self.right_splitter.setStretchFactor(0, 1)  # Редактор
-        self.right_splitter.setStretchFactor(1, 2)  # Таблица
         self.main_splitter.addWidget(self.right_splitter)
-        self.main_splitter.setStretchFactor(0, 1)  # Дерево
-        self.main_splitter.setStretchFactor(1, 4)  # Правая часть
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 4)
         main_layout.addWidget(self.main_splitter)
 
-        # Статус бар
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Готов к работе")
 
-        # Подключаем сигналы
+        # self.is_dark_theme = True — удалено отсюда
+
+        # Сигналы
         self.btn_create.clicked.connect(self.on_create_clicked)
         self.btn_connect.clicked.connect(self.on_connect_clicked)
         self.btn_export.clicked.connect(self.on_export_clicked)
         self.btn_run.clicked.connect(self.on_run_clicked)
         self.btn_theme.clicked.connect(self.toggle_theme)
-
-        # Подключаем Enter в редакторе к выполнению запроса
         self.query_editor.executionRequested.connect(self.on_run_clicked)
-
-        # Обработка клика по таблице в дереве
         self.tree_widget.itemClicked.connect(self.on_tree_item_clicked)
 
-        # Устанавливаем фокус на редактор при запуске
         self.query_editor.setFocus()
-
-        # Применяем стартовую тему
         self.setStyleSheet(DARK_THEME)
-
-        self.settings = QSettings("LinkovSoft", "SQLEditor")
-
-        # Загружаем сохраненное состояние
-        self.load_settings()
 
     def load_settings(self):
         """Загрузка настроек приложения"""
-        # 1. Восстановление темы
         saved_theme = self.settings.value("theme", "dark")
-        # По умолчанию у нас dark. Если сохранено light - переключаем.
         if saved_theme == "light":
             self.toggle_theme()
 
-        # 2. Восстановление последней БД
         last_db_path = self.settings.value("last_db")
-
-        if last_db_path:
-            # Проверяем, существует ли файл (вдруг его удалили)
-            if os.path.exists(last_db_path):
-                success, message = self.db.connect(last_db_path)
-                if success:
-                    self.status_bar.showMessage(
-                        f"Восстановлена сессия: {message}")
-                    self.btn_run.setEnabled(True)
-                    self.update_tree_structure()
-            else:
-                # Если файла нет, удаляем запись из настроек
+        if last_db_path and os.path.exists(last_db_path):
+            try:
+                self.db.connect(last_db_path)
+                self.status_bar.showMessage(
+                    f"Восстановлена сессия: {os.path.basename(last_db_path)}")
+                self.btn_run.setEnabled(True)
+                self.update_tree_structure()
+            except (sqlite3.Error,
+                    OSError):  # <--- ИСПРАВЛЕНИЕ 1: Ловим только ошибки БД и ОС
                 self.settings.remove("last_db")
-                self.status_bar.showMessage("Предыдущая БД не найдена")
+                self.status_bar.showMessage("Не удалось открыть предыдущую БД")
+        else:
+            self.settings.remove("last_db")
 
     def toggle_theme(self):
-        """Переключение между светлой и темной темой"""
         if self.is_dark_theme:
-            # Переключаем на СВЕТЛУЮ
             self.setStyleSheet(LIGHT_THEME)
             self.highlighter.set_theme("light")
             self.btn_theme.setText("☀️")
             self.is_dark_theme = False
             self.settings.setValue("theme", "light")
         else:
-            # Переключаем на ТЕМНУЮ
             self.setStyleSheet(DARK_THEME)
             self.highlighter.set_theme("dark")
             self.btn_theme.setText("🌙")
@@ -169,190 +154,133 @@ class MainWindow(QMainWindow):
             self.settings.setValue("theme", "dark")
 
     def on_create_clicked(self):
-        # Диалог СОХРАНЕНИЯ файла (создания нового)
         file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Создать новую базу данных",
-            "",
-            "SQLite Database (*.db *.sqlite *.sqlite3 *.db3);;All Files (*)"
+            self, "Создать БД", "", "SQLite Database (*.db *.sqlite)"
         )
-
         if file_path:
-            # Проверяем, есть ли уже у файла одно из допустимых расширений
-            valid_extensions = ('.db', '.sqlite', '.sqlite3', '.db3')
-
-            # Если расширения нет, добавляем .db по умолчанию
-            if not file_path.lower().endswith(valid_extensions):
+            if not file_path.lower().endswith(('.db', '.sqlite')):
                 file_path += '.db'
 
-            # Используем тот же метод connect, он создаст файл
-            success, message = self.db.connect(file_path)
-            self.status_bar.showMessage(message)
-
-            if success:
+            try:
+                self.db.connect(file_path)
                 self.settings.setValue("last_db", file_path)
                 self.btn_run.setEnabled(True)
                 self.update_tree_structure()
-                QMessageBox.information(
-                    self,
-                    "Успех",
-                    f"База данных успешно создана:\n{file_path}"
-                )
-            else:
-                QMessageBox.critical(self, "Ошибка", message)
+                QMessageBox.information(self, "Успех",
+                                        f"БД создана: {file_path}")
+            except Exception as e:
+                # Здесь Exception допустим для верхнеуровневого перехвата в UI слоте,
+                # чтобы приложение не упало при неожиданной ошибке.
+                QMessageBox.critical(self, "Ошибка",
+                                     f"Не удалось создать БД:\n{e}")
 
-    # --- Слоты (Методы обработки событий) ---
     def on_connect_clicked(self):
-        # Открываем диалог выбора файла
         file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Открыть базу данных",
-            "",
+            self, "Открыть БД", "",
             "SQLite Database (*.db *.sqlite);;All Files (*)"
         )
-
         if file_path:
-            success, message = self.db.connect(file_path)
-            self.status_bar.showMessage(message)
-
-            if success:
+            try:
+                self.db.connect(file_path)
+                self.status_bar.showMessage(
+                    f"Подключено: {os.path.basename(file_path)}")
                 self.settings.setValue("last_db", file_path)
                 self.btn_run.setEnabled(True)
                 self.update_tree_structure()
-            else:
-                QMessageBox.critical(self, "Ошибка", message)
+            except Exception as e:
+                self.status_bar.showMessage("Ошибка подключения")
+                QMessageBox.critical(self, "Ошибка",
+                                     f"Не удалось открыть файл:\n{e}")
 
     def on_export_clicked(self):
         if not self.current_rows:
             QMessageBox.warning(self, "Ошибка", "Нет данных для экспорта")
             return
 
-        # Диалог сохранения файла
         file_path, selected_filter = QFileDialog.getSaveFileName(
-            self,
-            "Экспорт данных",
-            "export_data",  # Имя по умолчанию
+            self, "Экспорт данных", "export_data",
             "CSV Files (*.csv);;JSON Files (*.json)"
         )
-
         if not file_path:
             return
 
-        success = False
-        message = ""
+        try:
+            if file_path.endswith('.csv') or "CSV" in selected_filter:
+                if not file_path.endswith('.csv'): file_path += '.csv'
+                export_to_csv(file_path, self.current_headers,
+                              self.current_rows)
+            else:
+                if not file_path.endswith('.json'): file_path += '.json'
+                export_to_json(file_path, self.current_headers,
+                               self.current_rows)
 
-        # Определяем формат по расширению или фильтру
-        if file_path.endswith('.csv') or "CSV" in selected_filter:
-            # Если пользователь не написал расширение, добавим его
-            if not file_path.endswith('.csv'):
-                file_path += '.csv'
-            success, message = export_to_csv(
-                file_path,
-                self.current_headers,
-                self.current_rows
-            )
+            QMessageBox.information(self, "Успех", "Файл успешно сохранен")
 
-        elif file_path.endswith('.json') or "JSON" in selected_filter:
-            if not file_path.endswith('.json'):
-                file_path += '.json'
-            success, message = export_to_json(
-                file_path,
-                self.current_headers,
-                self.current_rows
-            )
-
-        if success:
-            QMessageBox.information(self, "Успех", message)
-        else:
-            QMessageBox.critical(self, "Ошибка", message)
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка экспорта",
+                                 f"Не удалось сохранить файл:\n{e}")
 
     def on_run_clicked(self):
         sql = self.query_editor.toPlainText().strip()
         if not sql:
-            QMessageBox.warning(self, "Ошибка", "Введите SQL запрос!")
+            QMessageBox.warning(self, "Внимание", "Пустой запрос")
             return
 
-        # Выполняем запрос
-        headers, rows, message = self.db.execute_query(sql)
+        try:
+            # Чистый вызов логики
+            headers, rows = self.db.execute_query(sql)
 
-        if headers is None and rows is None:
-            # Ошибка (красное окно)
-            self.status_bar.showMessage("Ошибка выполнения")
-            QMessageBox.critical(self, "SQL Ошибка", message)
-        else:
             # Успех
-            self.status_bar.showMessage(message)
+            self.status_bar.showMessage("Запрос выполнен")
             self.fill_table(headers, rows)
             self.update_tree_structure()
-            if not headers:
-                QMessageBox.information(self, "Успех", message)
+
+            if not headers:  # Если это был не SELECT
+                QMessageBox.information(self, "Успех",
+                                        "Операция выполнена успешно")
+
+        except sqlite3.Error as e:
+            self.status_bar.showMessage("Ошибка SQL")
+            QMessageBox.critical(self, "SQL Ошибка",
+                                 f"Синтаксическая ошибка или ошибка БД:\n{e}")
+        except ConnectionError as e:
+            QMessageBox.warning(self, "Ошибка соединения", str(e))
+        except Exception as e:
+            QMessageBox.critical(self, "Критическая ошибка", str(e))
 
     def on_tree_item_clicked(self, item):
-        """Обработка клика по элементу дерева (таблице)"""
-        # Проверяем, что кликнули по таблице (у неё должен быть родитель)
         if item.parent():
             table_name = item.text(0)
-
-            # Формируем запрос для выборки всех данных
-            query = f"SELECT * FROM {table_name};"
-
-            # Вставляем запрос в редактор
-            self.query_editor.setPlainText(query)
-
-            # Автоматически выполняем его, как будто нажали кнопку Run
+            self.query_editor.setPlainText(f"SELECT * FROM {table_name};")
             self.on_run_clicked()
 
-    # --- Вспомогательные методы UI ---
     def update_tree_structure(self):
-        """Обновляет дерево таблиц слева"""
         self.tree_widget.clear()
+        if not self.db.db_path: return
 
-        # Корневой элемент - имя файла
-        db_name = self.db.db_path.split("/")[-1]
+        db_name = os.path.basename(self.db.db_path)
         root = QTreeWidgetItem(self.tree_widget, [db_name])
-        root.setIcon(
-            0,
-            self.style().standardIcon(
-                self.style().StandardPixmap.SP_DriveHDIcon
-            )
-        )
 
-        # Получаем таблицы
         tables = self.db.get_tables()
         for table in tables:
             QTreeWidgetItem(root, [table])
-            # Можно добавить иконку таблицы, если захочется
-
         root.setExpanded(True)
 
     def fill_table(self, headers, rows):
-        """Заполняет таблицу результатов"""
-        # --- СОХРАНЯЕМ ДАННЫЕ ДЛЯ ЭКСПОРТА ---
         self.current_headers = headers
         self.current_rows = rows
+        self.btn_export.setEnabled(bool(rows))
 
-        # Разблокируем кнопку экспорта, если есть данные
-        if rows:
-            self.btn_export.setEnabled(True)
-        else:
-            self.btn_export.setEnabled(False)
-
-        # Если запрос не вернул данных (например INSERT), очищаем таблицу
         if not headers:
             self.result_table.clear()
             self.result_table.setRowCount(0)
             self.result_table.setColumnCount(0)
             return
 
-        # Настраиваем колонки
         self.result_table.setColumnCount(len(headers))
         self.result_table.setHorizontalHeaderLabels(headers)
-
-        # Настраиваем строки
         self.result_table.setRowCount(len(rows))
 
-        # Заполняем ячейки
-        for row_idx, row_data in enumerate(rows):
-            for col_idx, value in enumerate(row_data):
-                item = QTableWidgetItem(str(value))
-                self.result_table.setItem(row_idx, col_idx, item)
+        for r, row_data in enumerate(rows):
+            for c, value in enumerate(row_data):
+                self.result_table.setItem(r, c, QTableWidgetItem(str(value)))
