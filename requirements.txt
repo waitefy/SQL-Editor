@@ -1,3 +1,4 @@
 pytest
+pytest-cov
 pyqt6
 pyqt6-sip

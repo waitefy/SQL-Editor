@@ -29,7 +29,7 @@ class TestCoreLogic:
         headers, rows = db_manager.execute_query(
             "CREATE TABLE heroes (id INTEGER PRIMARY KEY, name TEXT, power TEXT)"
         )
-        # Ожидаем пустые списки, так как это не SELECT
+        # Для DDL-запросов ожидаем пустые списки
         assert headers == []
         assert rows == []
 
@@ -42,36 +42,49 @@ class TestCoreLogic:
 
     def test_select_data(self, db_manager):
         """Тестирует выборку данных (SELECT)."""
-        # Подготовка
         db_manager.execute_query("CREATE TABLE users (id INT, name TEXT)")
         db_manager.execute_query("INSERT INTO users VALUES (1, 'Admin')")
 
-        # Выполнение
         headers, rows = db_manager.execute_query("SELECT * FROM users")
 
-        # Проверка
         assert headers == ['id', 'name']
         assert len(rows) == 1
         assert rows[0][1] == 'Admin'
 
+    def test_get_tables(self, db_manager):
+        """Тестирует получение списка таблиц."""
+        # 1. Проверяем, что список инициализируется (пустой или с системными таблицами)
+        tables = db_manager.get_tables()
+        assert isinstance(tables, list)
+
+        # 2. Создаем таблицу
+        db_manager.execute_query("CREATE TABLE my_test_table (id INT)")
+
+        # 3. Проверяем, что она появилась в списке
+        tables = db_manager.get_tables()
+        assert "my_test_table" in tables
+
     def test_invalid_query(self, db_manager):
         """Тестирует перехват ошибок SQL."""
-        # Ожидаем, что метод выбросит исключение sqlite3.Error
         with pytest.raises(sqlite3.Error):
             db_manager.execute_query("SELECT * FROM non_existent_table")
 
     def test_no_connection_error(self):
         """Тестирует попытку запроса без подключения."""
         manager = DatabaseManager()
-        # Ожидаем ConnectionError
+
+        # 1. execute_query должен вызвать ошибку
         with pytest.raises(ConnectionError):
             manager.execute_query("SELECT 1")
+
+        # 2. get_tables должен вернуть пустой список (безопасное поведение)
+        assert manager.get_tables() == []
 
     def test_close_connection(self, db_manager):
         """Тестирует закрытие соединения."""
         db_manager.close()
         assert db_manager.connection is None
 
-        # Проверяем, что запрос после закрытия вызывает ошибку
+        # Проверяем защиту от выполнения запросов после закрытия
         with pytest.raises(ConnectionError):
             db_manager.execute_query("SELECT 1")
