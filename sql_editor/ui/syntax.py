@@ -40,7 +40,7 @@ class SqlHighlighter(QSyntaxHighlighter):
                 "comment": "#8c8c8c"  # Серый
             }
 
-        # --- Создание форматов ---
+        # Создание форматов
         keyword_format = QTextCharFormat()
         keyword_format.setForeground(QColor(colors["keyword"]))
         keyword_format.setFontWeight(QFont.Weight.Bold)
@@ -54,7 +54,7 @@ class SqlHighlighter(QSyntaxHighlighter):
         comment_format = QTextCharFormat()
         comment_format.setForeground(QColor(colors["comment"]))
 
-        # --- Правила ---
+        # Правила
         for word in SQL_KEYWORDS:
             pattern = QRegularExpression(
                 rf"\b{word}\b",
@@ -70,7 +70,7 @@ class SqlHighlighter(QSyntaxHighlighter):
         # Принудительно перерисовываем подсветку
         self.rehighlight()
 
-    def highlightBlock(self, text):
+    def highlight_block(self, text):
         for pattern, fmt in self._highlighting_rules:
             iterator = pattern.globalMatch(text)
             while iterator.hasNext():

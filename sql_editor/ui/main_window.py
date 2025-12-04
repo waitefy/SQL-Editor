@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
         self.current_rows = []
 
         # Состояние интерфейса (Инициализируем атрибуты здесь)
-        self.is_dark_theme = True  # <--- ИСПРАВЛЕНИЕ 2: Перенесено в __init__
+        self.is_dark_theme = True
         self.highlighter = None
         self.query_editor = None
         self.result_table = None
@@ -104,8 +104,6 @@ class MainWindow(QMainWindow):
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Готов к работе")
 
-        # self.is_dark_theme = True — удалено отсюда
-
         # Сигналы
         self.btn_create.clicked.connect(self.on_create_clicked)
         self.btn_connect.clicked.connect(self.on_connect_clicked)
@@ -133,7 +131,7 @@ class MainWindow(QMainWindow):
                 self.btn_run.setEnabled(True)
                 self.update_tree_structure()
             except (sqlite3.Error,
-                    OSError):  # <--- ИСПРАВЛЕНИЕ 1: Ловим только ошибки БД и ОС
+                    OSError):
                 self.settings.remove("last_db")
                 self.status_bar.showMessage("Не удалось открыть предыдущую БД")
         else:

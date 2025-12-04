@@ -14,24 +14,20 @@ class DatabaseManager:
         self.db_path = path
 
     def execute_query(self, query):
-        """
-        Выполнение SQL запроса.
-        Возвращает (headers, rows) для SELECT или ([], []) для остальных.
-        Выбрасывает ConnectionError или sqlite3.Error.
-        """
+        """Выполнение SQL запроса"""
         if not self.connection:
             raise ConnectionError("Нет активного соединения с базой данных")
 
         # Выполняем запрос
         self.cursor.execute(query)
 
-        # Если есть описание курсора — это выборка данных (SELECT)
+        # Если есть описание курсора - это выборка данных (SELECT)
         if self.cursor.description:
             headers = [desc[0] for desc in self.cursor.description]
             rows = self.cursor.fetchall()
             return headers, rows
 
-        # Если описания нет — это команда действия (INSERT, UPDATE, CREATE, DROP)
+        # Если описания нет - это команда действия (INSERT, UPDATE, CREATE, DROP)
         else:
             self.connection.commit()
             return [], []
